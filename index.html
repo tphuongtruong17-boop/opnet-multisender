@@ -1,0 +1,1033 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OP_NET MultiSender — Bitcoin L1</title>
+<meta name="description" content="Gửi BTC hoặc OP-20 token đến nhiều địa chỉ opt1 trong một giao dịch Bitcoin">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:     #07080d;
+  --s1:     #0d0e14;
+  --s2:     #121318;
+  --border: #1c1d26;
+  --border2:#252636;
+  --ora:    #f7931a;
+  --ora2:   #e8830a;
+  --grn:    #22c55e;
+  --red:    #ef4444;
+  --blu:    #60a5fa;
+  --pur:    #a78bfa;
+  --txt:    #dde1f0;
+  --mut:    #5a6074;
+  --mono:   'IBM Plex Mono', monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  background:var(--bg);color:var(--txt);
+  font-family:'Inter',sans-serif;font-size:14px;line-height:1.6;
+  min-height:100vh;
+}
+/* grid bg */
+body::before{
+  content:'';position:fixed;inset:0;
+  background-image:
+    linear-gradient(rgba(247,147,26,.018) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(247,147,26,.018) 1px,transparent 1px);
+  background-size:52px 52px;pointer-events:none;z-index:0;
+}
+
+/* ── TOPBAR ───────────────────────────────── */
+#bar{
+  position:sticky;top:0;z-index:100;
+  background:rgba(7,8,13,.92);backdrop-filter:blur(14px);
+  border-bottom:1px solid var(--border);
+  height:52px;display:flex;align-items:center;
+  justify-content:space-between;padding:0 20px;gap:12px;
+}
+.logo{display:flex;align-items:center;gap:9px;text-decoration:none}
+.logo-sq{
+  width:30px;height:30px;background:var(--ora);
+  border-radius:7px;display:flex;align-items:center;
+  justify-content:center;font-size:14px;flex-shrink:0;
+}
+.logo-tx{font-weight:800;font-size:17px;letter-spacing:-.5px;color:var(--txt)}
+.logo-tx b{color:var(--ora)}
+
+.pill{
+  display:flex;align-items:center;gap:6px;
+  background:var(--s1);border:1px solid var(--border);
+  border-radius:99px;padding:4px 12px;
+  font-family:var(--mono);font-size:11px;color:var(--mut);
+}
+.dot{
+  width:7px;height:7px;border-radius:50%;
+  background:var(--mut);flex-shrink:0;
+}
+.dot.on{background:var(--grn);box-shadow:0 0 6px var(--grn);animation:blink 2s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+
+/* ── BUTTONS ─────────────────────────────── */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;
+  gap:6px;border-radius:7px;font-family:'Inter',sans-serif;
+  font-weight:600;font-size:13px;cursor:pointer;
+  transition:all .15s;border:1px solid transparent;white-space:nowrap;
+}
+.btn:disabled{opacity:.4;cursor:not-allowed!important;transform:none!important}
+.btn-ora{background:var(--ora);color:#000;padding:8px 16px}
+.btn-ora:not(:disabled):hover{background:var(--ora2);box-shadow:0 0 18px rgba(247,147,26,.28)}
+.btn-ghost{background:var(--s1);color:var(--txt);border-color:var(--border);padding:7px 13px}
+.btn-ghost:not(:disabled):hover{border-color:var(--border2)}
+.btn-full{width:100%;padding:12px;font-size:15px;font-weight:700;border-radius:10px}
+
+/* ── LAYOUT ──────────────────────────────── */
+#wrap{position:relative;z-index:1;max-width:820px;margin:0 auto;padding:28px 18px 80px}
+
+/* ── CONNECT SCREEN ──────────────────────── */
+#cxScreen{
+  min-height:72vh;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;text-align:center;gap:20px;
+}
+#cxScreen h2{font-size:30px;font-weight:800;letter-spacing:-.5px}
+#cxScreen p{color:var(--mut);max-width:360px;font-size:14px}
+.cx-ico{
+  width:68px;height:68px;background:var(--s2);
+  border:1px solid var(--border);border-radius:18px;
+  display:flex;align-items:center;justify-content:center;font-size:30px;
+}
+#appShell{display:none}
+#appShell.on{display:block}
+
+/* ── WALLET BAR ──────────────────────────── */
+#wBar{
+  background:var(--s1);border:1px solid var(--border);
+  border-radius:10px;padding:11px 15px;display:flex;
+  align-items:center;justify-content:space-between;gap:12px;
+  margin-bottom:22px;flex-wrap:wrap;
+}
+.w-addr{font-family:var(--mono);font-size:12px;color:var(--grn)}
+.bal-chip{
+  background:rgba(247,147,26,.07);border:1px solid rgba(247,147,26,.18);
+  border-radius:5px;padding:3px 9px;
+  font-family:var(--mono);font-size:12px;color:var(--ora);
+}
+
+/* ── TABS ─────────────────────────────────── */
+.tabs{display:flex;border-bottom:1px solid var(--border);margin-bottom:22px;gap:2px}
+.tab{
+  background:none;border:none;color:var(--mut);
+  font-family:'Inter';font-weight:600;font-size:13px;
+  padding:9px 15px;cursor:pointer;transition:color .15s;
+  border-bottom:2px solid transparent;margin-bottom:-1px;
+}
+.tab.on{color:var(--ora);border-bottom-color:var(--ora)}
+.tab:not(.on):hover{color:var(--txt)}
+.pane{display:none}
+.pane.on{display:block}
+
+/* ── PANEL ────────────────────────────────── */
+.panel{
+  background:var(--s1);border:1px solid var(--border);
+  border-radius:12px;padding:20px;margin-bottom:14px;
+}
+.ptitle{
+  font-family:var(--mono);font-size:10px;font-weight:600;
+  letter-spacing:1.5px;text-transform:uppercase;color:var(--mut);
+  margin-bottom:13px;
+}
+
+/* ── FORM ─────────────────────────────────── */
+.field{margin-bottom:13px}
+.field:last-child{margin-bottom:0}
+label{
+  display:block;font-size:11px;font-weight:600;
+  color:var(--mut);letter-spacing:.7px;text-transform:uppercase;
+  margin-bottom:4px;
+}
+input,textarea,select{
+  width:100%;background:var(--s2);border:1px solid var(--border);
+  border-radius:7px;color:var(--txt);font-family:var(--mono);
+  font-size:12px;padding:8px 11px;outline:none;
+  transition:border-color .15s;appearance:none;
+}
+input:focus,textarea:focus,select:focus{border-color:var(--ora)}
+textarea{min-height:110px;resize:vertical}
+.hint{font-family:var(--mono);font-size:10px;color:var(--mut);margin-top:4px}
+
+/* ── RECIPIENT ROWS ──────────────────────── */
+#recvList{display:flex;flex-direction:column;gap:4px;margin-bottom:9px}
+.rrow{
+  display:grid;grid-template-columns:1fr 120px 26px;
+  gap:4px;align-items:center;
+  background:var(--s2);border:1px solid var(--border);
+  border-radius:7px;padding:6px 9px;
+  animation:fadeUp .14s ease;
+}
+@keyframes fadeUp{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+.rrow input{background:none;border:none;padding:0;font-size:11px;border-radius:0}
+.rrow input:focus{box-shadow:none}
+.rmv{
+  background:none;border:none;color:var(--mut);
+  cursor:pointer;font-size:13px;width:22px;height:22px;
+  display:flex;align-items:center;justify-content:center;
+  border-radius:4px;transition:all .14s;flex-shrink:0;
+}
+.rmv:hover{background:rgba(239,68,68,.1);color:var(--red)}
+.addbtn{
+  width:100%;background:none;border:1px dashed var(--border2);
+  border-radius:7px;color:var(--mut);font-family:var(--mono);
+  font-size:11px;padding:7px;cursor:pointer;transition:all .15s;
+  display:flex;align-items:center;justify-content:center;gap:6px;
+}
+.addbtn:hover{border-color:var(--grn);color:var(--grn)}
+
+/* ── DIVIDER ─────────────────────────────── */
+.dvd{
+  display:flex;align-items:center;gap:9px;margin:12px 0;
+  color:var(--mut);font-family:var(--mono);font-size:10px;letter-spacing:1px;
+}
+.dvd::before,.dvd::after{content:'';flex:1;height:1px;background:var(--border)}
+
+/* ── SUMMARY ─────────────────────────────── */
+#sumPanel{display:none}
+.sg{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-bottom:14px}
+.sbox{
+  background:var(--s2);border:1px solid var(--border);
+  border-radius:8px;padding:11px 13px;
+}
+.sl{font-family:var(--mono);font-size:10px;color:var(--mut);margin-bottom:3px}
+.sv{font-family:var(--mono);font-size:15px;font-weight:600;color:var(--ora)}
+
+/* ── PROGRESS ────────────────────────────── */
+.ptrack{height:3px;background:var(--s2);border-radius:99px;overflow:hidden;margin:11px 0;display:none}
+.ptrack.on{display:block}
+.pfill{height:100%;background:linear-gradient(90deg,var(--ora),var(--grn));border-radius:99px;width:0%;transition:width .4s ease}
+
+/* ── LOG ──────────────────────────────────── */
+#txLog{
+  background:var(--s2);border:1px solid var(--border);
+  border-radius:8px;padding:12px;font-family:var(--mono);
+  font-size:11px;max-height:220px;overflow-y:auto;
+  display:none;margin-top:12px;
+}
+#txLog.on{display:block}
+.le{display:flex;gap:8px;padding:2px 0;border-bottom:1px solid rgba(255,255,255,.03);animation:fadeUp .12s}
+.lt{color:var(--mut);flex-shrink:0}
+.lm{word-break:break-all}
+.lm.ok{color:var(--grn)}.lm.er{color:var(--red)}.lm.wn{color:var(--ora)}
+
+/* ── CODE BLOCK ──────────────────────────── */
+.cblock{
+  background:#050509;border:1px solid var(--border);
+  border-radius:8px;padding:14px;font-family:var(--mono);
+  font-size:11px;line-height:1.75;overflow:auto;max-height:380px;
+  color:#9ca3af;white-space:pre;margin-bottom:13px;
+}
+.kw{color:#a78bfa}.fn{color:#60a5fa}.st{color:#86efac}
+.cm{color:#2d3348}.nm{color:#fb923c}.ty{color:#fbbf24}.dc{color:#f472b6}
+
+/* ── STATUS BADGE ────────────────────────── */
+.badge{
+  display:inline-flex;align-items:center;gap:4px;
+  font-family:var(--mono);font-size:10px;font-weight:600;
+  letter-spacing:.8px;text-transform:uppercase;
+  padding:3px 7px;border-radius:4px;
+}
+.badge.ok{background:rgba(34,197,94,.08);color:var(--grn);border:1px solid rgba(34,197,94,.2)}
+.badge.wn{background:rgba(247,147,26,.08);color:var(--ora);border:1px solid rgba(247,147,26,.2)}
+.badge.er{background:rgba(239,68,68,.08);color:var(--red);border:1px solid rgba(239,68,68,.2)}
+
+/* ── HISTORY ─────────────────────────────── */
+.hrow{display:flex;align-items:flex-start;gap:11px;padding:11px 0;border-bottom:1px solid var(--border)}
+.hrow:last-child{border-bottom:none}
+.hico{width:30px;height:30px;border-radius:50%;background:var(--s2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0;margin-top:1px}
+.htx{font-family:var(--mono);font-size:11px;color:var(--ora);text-decoration:none;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.htx:hover{text-decoration:underline}
+.hm{font-size:11px;color:var(--mut);margin-top:2px}
+
+/* ── MODAL ────────────────────────────────── */
+.ovl{position:fixed;inset:0;background:rgba(0,0,0,.72);backdrop-filter:blur(5px);z-index:200;display:none;align-items:center;justify-content:center;padding:18px}
+.ovl.on{display:flex}
+.modal{background:var(--s1);border:1px solid var(--border2);border-radius:14px;padding:26px;max-width:400px;width:100%;animation:pop .2s cubic-bezier(.34,1.56,.64,1)}
+@keyframes pop{from{opacity:0;transform:scale(.93) translateY(8px)}to{opacity:1;transform:none}}
+.modal h3{font-size:18px;font-weight:700;margin-bottom:9px}
+.modal p{color:var(--mut);font-size:13px;line-height:1.6;margin-bottom:20px}
+.mact{display:flex;gap:8px;justify-content:flex-end}
+
+/* ── TOAST ────────────────────────────────── */
+#toast{
+  position:fixed;bottom:22px;right:22px;z-index:300;
+  background:var(--s1);border:1px solid var(--border2);
+  border-radius:9px;padding:11px 17px;font-size:13px;font-weight:500;
+  max-width:320px;display:flex;align-items:center;gap:7px;
+  transform:translateY(60px);opacity:0;
+  transition:all .25s cubic-bezier(.34,1.56,.64,1);pointer-events:none;
+}
+#toast.on{transform:translateY(0);opacity:1}
+#toast.ok{border-color:rgba(34,197,94,.3);color:var(--grn)}
+#toast.er{border-color:rgba(239,68,68,.3);color:var(--red)}
+#toast.wn{border-color:rgba(247,147,26,.3);color:var(--ora)}
+
+/* ── SPINNER ──────────────────────────────── */
+@keyframes spin{to{transform:rotate(360deg)}}
+.spin{width:15px;height:15px;border:2px solid rgba(0,0,0,.2);border-top-color:#000;border-radius:50%;animation:spin .6s linear infinite;display:inline-block}
+
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:4px}
+
+@media(max-width:580px){
+  .sg{grid-template-columns:1fr 1fr}
+  .rrow{grid-template-columns:1fr 100px 26px}
+  #bar{padding:0 12px}
+  #wrap{padding:18px 12px 60px}
+}
+</style>
+</head>
+<body>
+
+<!-- ══ TOPBAR ══════════════════════════════════════════════════════ -->
+<div id="bar">
+  <a href="#" class="logo">
+    <div class="logo-sq">⚡</div>
+    <div class="logo-tx">OP<b>SENDER</b></div>
+  </a>
+  <div style="display:flex;align-items:center;gap:9px">
+    <div class="pill">
+      <div class="dot" id="netDot"></div>
+      <span id="netTxt">Disconnected</span>
+    </div>
+    <button class="btn btn-ora" id="cxBtn" onclick="connectWallet()">Connect OP_WALLET</button>
+  </div>
+</div>
+
+<div id="wrap">
+
+<!-- ── CONNECT SCREEN ──────────────────────────────────────────── -->
+<div id="cxScreen">
+  <div class="cx-ico">🔐</div>
+  <h2>Connect Your Wallet</h2>
+  <p>Cần OP_WALLET để ký giao dịch trên OP_NET.<br>Địa chỉ của bạn sẽ có dạng <b style="color:var(--ora)">opt1...</b></p>
+  <div style="display:flex;flex-direction:column;gap:8px;align-items:center">
+    <button class="btn btn-ora" onclick="connectWallet()" style="font-size:15px;padding:12px 28px">
+      🦊 Connect OP_WALLET
+    </button>
+    <div style="font-size:12px;color:var(--mut)">
+      Chưa có?
+      <a href="https://chromewebstore.google.com/detail/opwallet/pmbjpcmaaladnfpacpmhmnfmpklgbdjb" target="_blank" style="color:var(--ora)">Tải OP_WALLET</a>
+      ·
+      <a href="https://faucet.opnet.org" target="_blank" style="color:var(--ora)">Faucet tBTC</a>
+    </div>
+  </div>
+</div>
+
+<!-- ── APP ──────────────────────────────────────────────────────── -->
+<div id="appShell">
+
+<div id="netWarn" style="display:none;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);
+  color:var(--red);border-radius:8px;padding:10px 15px;margin-bottom:14px;
+  font-size:12px;font-family:var(--mono);font-weight:600;text-align:center"></div>
+
+  <div id="wBar">
+    <div>
+      <div style="font-size:10px;color:var(--mut);text-transform:uppercase;letter-spacing:1px;margin-bottom:2px">Địa chỉ ví</div>
+      <div class="w-addr" id="wAddr">—</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+      <div class="bal-chip" id="wBal">— BTC</div>
+      <button class="btn btn-ghost" onclick="disconnect()" style="font-size:11px;padding:5px 10px">Ngắt kết nối</button>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab on"  onclick="tab('send',this)">⚡ Gửi</button>
+    <button class="tab"     onclick="tab('contract',this)">📜 Contract</button>
+    <button class="tab"     onclick="tab('history',this)">📋 Lịch sử</button>
+  </div>
+
+  <!-- ═══ TAB SEND ══════════════════════════════════════════════ -->
+  <div class="pane on" id="pane-send">
+
+    <!-- Asset -->
+    <div class="panel">
+      <div class="ptitle">⚙ Cấu hình tài sản</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="field">
+          <label>Loại tài sản</label>
+          <select id="assetSel" onchange="onAsset()">
+            <option value="btc">BTC — Native Bitcoin</option>
+            <option value="op20">OP-20 Token</option>
+          </select>
+        </div>
+        <div class="field" id="tokenField" style="display:none">
+          <label>Địa chỉ OP-20 (opt1...)</label>
+          <input id="tokenAddr" placeholder="opt1sq..." />
+        </div>
+      </div>
+      <div id="tokenInfoRow" style="display:none;margin-top:10px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-family:var(--mono);font-size:11px;color:var(--mut)">Token:</span>
+          <span id="tokenSymDisp" style="font-family:var(--mono);font-size:13px;color:var(--grn);font-weight:600">—</span>
+          <button onclick="loadToken()" class="btn btn-ghost" style="margin-left:auto;font-size:11px;padding:4px 9px">Tải info</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Recipients -->
+    <div class="panel">
+      <div class="ptitle">📋 Danh sách người nhận</div>
+      <div id="recvList"></div>
+      <button class="addbtn" onclick="addRow()">＋ Thêm địa chỉ opt1</button>
+
+      <div class="dvd">DÁN TỪ CSV</div>
+      <div class="field">
+        <label>CSV — mỗi dòng: địa_chỉ, số_sat</label>
+        <textarea id="csvBox" placeholder="opt1sqabc..., 10000
+opt1sqxyz..., 25000
+opt1sqdef..., 5000"></textarea>
+        <div class="hint">Đơn vị: satoshi (1 BTC = 100,000,000 sat) · Tối đa 200 dòng/giao dịch</div>
+      </div>
+      <button class="btn btn-ghost" onclick="parseCSV()" style="width:100%">📥 Nạp từ CSV</button>
+    </div>
+
+    <!-- Summary -->
+    <div id="sumPanel" class="panel">
+      <div class="ptitle">📊 Tóm tắt giao dịch</div>
+      <div class="sg">
+        <div class="sbox"><div class="sl">Người nhận</div><div class="sv" id="sumR">0</div></div>
+        <div class="sbox"><div class="sl">Tổng (sat)</div><div class="sv" id="sumA">0</div></div>
+        <div class="sbox"><div class="sl">Phí (sat)</div><div class="sv" id="sumF">546</div></div>
+      </div>
+      <div class="ptrack" id="ptrack"><div class="pfill" id="pfill"></div></div>
+      <button class="btn btn-ora btn-full" id="sendBtn" onclick="triggerSend()">
+        ⚡ Thực hiện MultiSend
+      </button>
+      <div id="txLog"><div id="logL"></div></div>
+    </div>
+
+  </div>
+
+  <!-- ═══ TAB CONTRACT ══════════════════════════════════════════ -->
+  <div class="pane" id="pane-contract">
+    <div class="panel">
+      <div class="ptitle">📜 Mã nguồn (AssemblyScript → WASM)</div>
+      <div class="cblock" id="codeEl"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:13px">
+        <div class="sbox">
+          <div class="sl">Contract Address</div>
+          <div id="deployAddr" style="font-family:var(--mono);font-size:11px;color:var(--grn);word-break:break-all;margin-top:4px">Chưa triển khai</div>
+        </div>
+        <div class="sbox">
+          <div class="sl">Trạng thái</div>
+          <div style="margin-top:6px" id="deployStatus"><span class="badge wn">⏳ Pending</span></div>
+        </div>
+      </div>
+
+      <!-- Nhập contract address thủ công (sau khi deploy qua OP_WALLET tay) -->
+      <div class="field" style="margin-bottom:10px">
+        <label>📌 Nhập địa chỉ contract đã deploy (opt1...)</label>
+        <div style="display:flex;gap:8px">
+          <input id="contractAddrInput" placeholder="opt1sq... (lấy từ OP_WALLET sau khi deploy)" style="flex:1"/>
+          <button class="btn btn-ghost" onclick="setContractAddr()" style="flex-shrink:0;white-space:nowrap">Lưu</button>
+        </div>
+        <div class="hint">Nếu đã deploy sẵn contract, dán địa chỉ vào đây để dùng ngay</div>
+      </div>
+
+      <button class="btn btn-ora btn-full" id="deployBtn" onclick="deployContract()">
+        🚀 Deploy lên OP_NET
+      </button>
+    </div>
+    <div class="panel" id="deployLogPanel" style="display:none">
+      <div class="ptitle">🔄 Deploy Log</div>
+      <div id="deployLogL" style="font-family:var(--mono);font-size:11px;line-height:1.9"></div>
+    </div>
+  </div>
+
+  <!-- ═══ TAB HISTORY ═══════════════════════════════════════════ -->
+  <div class="pane" id="pane-history">
+    <div class="panel">
+      <div class="ptitle">📋 Lịch sử giao dịch</div>
+      <div id="histList">
+        <div style="text-align:center;padding:36px 0;color:var(--mut)">
+          <div style="font-size:34px;margin-bottom:9px">📭</div>Chưa có giao dịch
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /appShell -->
+</div><!-- /wrap -->
+
+<!-- MODAL confirm -->
+<div class="ovl" id="cfmOvl">
+  <div class="modal">
+    <h3>⚡ Xác nhận giao dịch</h3>
+    <div id="cfmBody"></div>
+    <div class="mact">
+      <button class="btn btn-ghost" onclick="closeOvl('cfmOvl')">Hủy</button>
+      <button class="btn btn-ora" id="cfmOk">Xác nhận & Ký</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════════════════════
+//  CONTRACT SOURCE (AssemblyScript — hiển thị + sẽ được build)
+// ══════════════════════════════════════════════════════════════
+const SRC = `<span class="cm">// MultiSender.ts — OP_NET Bitcoin L1 Smart Contract</span>
+<span class="cm">// Địa chỉ contract: opt1sq... (P2OP — OP_NET native format)</span>
+
+<span class="dc">@final</span>
+<span class="kw">export class</span> <span class="ty">MultiSender</span> <span class="kw">extends</span> <span class="ty">OP_NET</span> {
+
+  <span class="cm">// Storage: mỗi biến cần pointer u16 riêng biệt</span>
+  <span class="kw">private readonly</span> POINTER_TOTAL_SENT: <span class="ty">u16</span> = <span class="nm">1</span>;
+  <span class="kw">private readonly</span> POINTER_TX_COUNT:   <span class="ty">u16</span> = <span class="nm">2</span>;
+
+  <span class="cm">// Phí 0.1% = 10 BPS — INTEGER ONLY, không dùng float!</span>
+  <span class="kw">private readonly</span> FEE_BPS:  <span class="ty">u64</span> = <span class="nm">10</span>;
+  <span class="kw">private readonly</span> BPS_DENOM: <span class="ty">u64</span> = <span class="nm">10000</span>;
+  <span class="kw">private readonly</span> MAX_RECIPIENTS: <span class="ty">i32</span> = <span class="nm">200</span>;
+
+  <span class="kw">private</span> _totalSent: <span class="ty">StoredU256</span> =
+    <span class="kw">new</span> <span class="ty">StoredU256</span>(<span class="kw">this</span>.POINTER_TOTAL_SENT, u256.Zero);
+  <span class="kw">private</span> _txCount: <span class="ty">StoredU256</span> =
+    <span class="kw">new</span> <span class="ty">StoredU256</span>(<span class="kw">this</span>.POINTER_TX_COUNT, u256.Zero);
+
+  <span class="kw">public constructor</span>() { <span class="kw">super</span>(); }
+
+  <span class="cm">// Chạy 1 lần duy nhất khi deploy (≠ constructor)</span>
+  <span class="kw">public override</span> <span class="fn">onDeployment</span>(_calldata: <span class="ty">Calldata</span>): <span class="ty">void</span> {
+    Blockchain.log(<span class="st">'MultiSender deployed on OP_NET'</span>);
+  }
+
+  <span class="cm">// Router: dispatch selector → function</span>
+  <span class="kw">public override</span> <span class="fn">callMethod</span>(
+    method: <span class="ty">Selector</span>, calldata: <span class="ty">Calldata</span>
+  ): <span class="ty">BytesWriter</span> {
+    <span class="kw">switch</span> (method) {
+      <span class="kw">case</span> <span class="fn">encodeSelector</span>(<span class="st">'multiSendBTC()'</span>):
+        <span class="kw">return this</span>.<span class="fn">multiSendBTC</span>(calldata);
+      <span class="kw">case</span> <span class="fn">encodeSelector</span>(<span class="st">'multiSendToken()'</span>):
+        <span class="kw">return this</span>.<span class="fn">multiSendToken</span>(calldata);
+      <span class="kw">case</span> <span class="fn">encodeSelector</span>(<span class="st">'withdrawFees()'</span>):
+        <span class="kw">return this</span>.<span class="fn">withdrawFees</span>(calldata);
+      <span class="kw">default</span>: <span class="kw">throw new</span> <span class="ty">Revert</span>(<span class="st">'Unknown selector'</span>);
+    }
+  }
+
+  <span class="kw">private</span> <span class="fn">multiSendBTC</span>(calldata: <span class="ty">Calldata</span>): <span class="ty">BytesWriter</span> {
+    <span class="kw">const</span> count = calldata.readU32() <span class="kw">as</span> <span class="ty">i32</span>;
+    <span class="kw">if</span> (count > <span class="kw">this</span>.MAX_RECIPIENTS)
+      <span class="kw">throw new</span> <span class="ty">Revert</span>(<span class="st">'Too many recipients'</span>);
+
+    <span class="kw">let</span> total: <span class="ty">u256</span> = u256.Zero;
+    <span class="kw">const</span> recvs = <span class="kw">new</span> <span class="ty">Array</span>&lt;<span class="ty">Address</span>&gt;(count);
+    <span class="kw">const</span> amts  = <span class="kw">new</span> <span class="ty">Array</span>&lt;<span class="ty">u256</span>&gt;(count);
+
+    <span class="kw">for</span> (<span class="kw">let</span> i = <span class="nm">0</span>; i < count; i++) {
+      recvs[i] = calldata.readAddress(); <span class="cm">// → opt1... address</span>
+      amts[i]  = calldata.readU256();
+      total    = total.add(amts[i]);
+    }
+
+    <span class="cm">// fee = total * 10 / 10000 (min 546 sat)</span>
+    <span class="kw">const</span> fee = SafeMath.max(
+      total.mul(u256.fromU64(<span class="kw">this</span>.FEE_BPS))
+           .div(u256.fromU64(<span class="kw">this</span>.BPS_DENOM)),
+      u256.fromU64(<span class="nm">546</span>)
+    );
+
+    <span class="kw">if</span> (Blockchain.tx.value.lt(total.add(fee)))
+      <span class="kw">throw new</span> <span class="ty">Revert</span>(<span class="st">'Insufficient BTC'</span>);
+
+    <span class="kw">for</span> (<span class="kw">let</span> i = <span class="nm">0</span>; i < count; i++)
+      Blockchain.transfer(recvs[i], amts[i]);
+
+    <span class="kw">this</span>._totalSent.set(<span class="kw">this</span>._totalSent.get().add(total));
+    <span class="kw">this</span>._txCount.set(<span class="kw">this</span>._txCount.get().add(u256.One));
+    <span class="kw">this</span>.emitEvent(<span class="kw">new</span> <span class="ty">MultiSendBTCEvent</span>(
+      Blockchain.tx.origin, recvs, amts, total, fee
+    ));
+
+    <span class="kw">const</span> w = <span class="kw">new</span> <span class="ty">BytesWriter</span>(<span class="nm">1</span>);
+    w.writeBoolean(<span class="kw">true</span>);
+    <span class="kw">return</span> w;
+  }
+}`;
+
+// ══════════════════════════════════════════════════════════════
+//  STATE
+// ══════════════════════════════════════════════════════════════
+const S = {
+  wallet: null, balance: 0, network: null,
+  asset: 'btc', tokenInfo: null,
+  contractAddr: null, deployed: false,
+  sending: false, history: []
+};
+
+// Init
+document.getElementById('codeEl').innerHTML = SRC;
+addRow(); addRow();
+
+window.addEventListener('load', async () => {
+  const p = window.opnet || window.unisat;
+  if (!p) return;
+  try {
+    const a = await p.getAccounts();
+    if (a?.length) await onConnected(a[0]);
+  } catch {}
+});
+
+// ══════════════════════════════════════════════════════════════
+//  WALLET — OP_WALLET dùng window.opnet, địa chỉ opt1...
+// ══════════════════════════════════════════════════════════════
+async function connectWallet() {
+  const p = window.opnet || window.unisat;
+  if (!p) {
+    toast('Cần cài OP_WALLET extension!', 'er');
+    setTimeout(() => window.open(
+      'https://chromewebstore.google.com/detail/opwallet/pmbjpcmaaladnfpacpmhmnfmpklgbdjb','_blank'
+    ), 1200);
+    return;
+  }
+  try {
+    document.getElementById('cxBtn').textContent = 'Đang kết nối...';
+    const accs = await p.requestAccounts();
+    await onConnected(accs[0]);
+  } catch(e) {
+    document.getElementById('cxBtn').textContent = 'Connect OP_WALLET';
+    toast('Từ chối kết nối', 'er');
+  }
+}
+
+async function onConnected(addr) {
+  S.wallet = addr;
+  try {
+    const p = window.opnet || window.unisat;
+    const b = await p.getBalance();
+    S.balance = (Number(b.confirmed ?? b.total ?? 0) / 1e8);
+    const n = await p.getNetwork?.();
+    S.network = n;
+    const label = n === 'livenet' ? 'Mainnet' : n === 'testnet' ? 'Testnet' : 'Regtest';
+    document.getElementById('netTxt').textContent = `OP_NET ${label}`;
+  } catch { S.balance = 0; }
+
+  document.getElementById('netDot').classList.add('on');
+  document.getElementById('cxScreen').style.display = 'none';
+  document.getElementById('appShell').classList.add('on');
+  document.getElementById('cxBtn').style.display = 'none';
+
+  // địa chỉ opt1 — hiển thị đầy đủ
+  document.getElementById('wAddr').textContent = addr;
+  document.getElementById('wBal').textContent = `${S.balance.toFixed(6)} BTC`;
+
+  // Hiển thị network label (testnet/mainnet) — không block
+  const netWarnEl = document.getElementById('netWarn');
+  if (S.network && S.network !== 'livenet') {
+    netWarnEl.style.display = 'block';
+    netWarnEl.textContent = `🧪 Đang dùng ${S.network.toUpperCase()} — Giao dịch test, không dùng BTC thật`;
+    netWarnEl.style.background = 'rgba(96,165,250,.08)';
+    netWarnEl.style.borderColor = 'rgba(96,165,250,.25)';
+    netWarnEl.style.color = 'var(--blu)';
+  } else if (S.network === 'livenet') {
+    netWarnEl.style.display = 'block';
+    netWarnEl.textContent = '🟢 Mainnet — Giao dịch thật trên Bitcoin';
+    netWarnEl.style.background = 'rgba(34,197,94,.07)';
+    netWarnEl.style.borderColor = 'rgba(34,197,94,.2)';
+    netWarnEl.style.color = 'var(--grn)';
+  } else {
+    netWarnEl.style.display = 'none';
+  }
+
+  toast('✓ Kết nối thành công — ' + addr.slice(0,14) + '...', 'ok');
+
+  const p = window.opnet || window.unisat;
+  p?.on?.('accountsChanged', a => a.length ? onConnected(a[0]) : disconnect());
+  p?.on?.('networkChanged',  n => { S.network = n; onConnected(S.wallet); });
+}
+
+function disconnect() {
+  S.wallet = null;
+  document.getElementById('cxScreen').style.display = 'flex';
+  document.getElementById('appShell').classList.remove('on');
+  document.getElementById('cxBtn').style.display = '';
+  document.getElementById('cxBtn').textContent = 'Connect OP_WALLET';
+  document.getElementById('netDot').classList.remove('on');
+  document.getElementById('netTxt').textContent = 'Disconnected';
+}
+
+// ══════════════════════════════════════════════════════════════
+//  TABS
+// ══════════════════════════════════════════════════════════════
+function tab(name, el) {
+  document.querySelectorAll('.pane').forEach(p => p.classList.remove('on'));
+  document.querySelectorAll('.tab').forEach(b => b.classList.remove('on'));
+  document.getElementById('pane-' + name).classList.add('on');
+  el.classList.add('on');
+}
+
+// ══════════════════════════════════════════════════════════════
+//  ASSET
+// ══════════════════════════════════════════════════════════════
+function onAsset() {
+  S.asset = document.getElementById('assetSel').value;
+  const show = S.asset === 'op20';
+  document.getElementById('tokenField').style.display = show ? 'block' : 'none';
+  document.getElementById('tokenInfoRow').style.display = show ? 'block' : 'none';
+}
+
+async function loadToken() {
+  const addr = document.getElementById('tokenAddr').value.trim();
+  if (!addr.startsWith('opt1')) {
+    toast('Địa chỉ OP-20 phải bắt đầu bằng opt1...', 'er'); return;
+  }
+  toast('Đang tải thông tin token...', 'wn');
+  try {
+    const p = window.opnet;
+    if (!p) throw new Error('OP_WALLET chưa kết nối');
+
+    // Gọi callView('symbol()') thật sự qua OP_NET
+    let sym = 'OP20';
+    let name = '';
+    if (p.callView) {
+      const symRes = await p.callView({ to: addr, method: 'symbol()' });
+      sym = symRes?.result ?? symRes ?? 'OP20';
+      try {
+        const nameRes = await p.callView({ to: addr, method: 'name()' });
+        name = nameRes?.result ?? '';
+      } catch {}
+    } else if (p.call) {
+      // fallback: một số version dùng p.call
+      const symRes = await p.call({ to: addr, data: '0x95d89b41' }); // keccak4('symbol()')
+      sym = symRes ? (new TextDecoder().decode(
+        Uint8Array.from(Buffer.from(symRes.replace(/^0x/,'').slice(128), 'hex')).filter(b=>b>31)
+      )).trim() : 'OP20';
+    }
+
+    S.tokenInfo = { addr, sym };
+    document.getElementById('tokenSymDisp').textContent = name ? `${sym} (${name})` : sym;
+    toast(`✓ Token: ${sym}`, 'ok');
+  } catch(e) {
+    toast('Lỗi tải token: ' + e.message, 'er');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  RECIPIENTS — validate địa chỉ opt1
+// ══════════════════════════════════════════════════════════════
+function addRow(addr = '', amt = '') {
+  const list = document.getElementById('recvList');
+  const row = document.createElement('div');
+  const id = 'r' + Date.now().toString(36);
+  row.className = 'rrow'; row.dataset.id = id;
+  row.innerHTML = `
+    <input type="text" placeholder="opt1sq... địa chỉ người nhận" value="${escHtml(addr)}"
+      oninput="validateAddr(this);updateSum()" style="font-size:11px"/>
+    <input type="number" placeholder="Satoshi" step="1" min="1" value="${escHtml(amt)}"
+      style="text-align:right" oninput="updateSum()"/>
+    <button class="rmv" onclick="removeRow('${id}')">×</button>`;
+  list.appendChild(row);
+  updateSum();
+}
+
+function validateAddr(inp) {
+  const v = inp.value.trim();
+  // OP_NET addresses start with opt1
+  if (v && !v.startsWith('opt1')) {
+    inp.style.color = 'var(--red)';
+    inp.title = 'Địa chỉ OP_NET phải bắt đầu bằng opt1...';
+  } else {
+    inp.style.color = '';
+    inp.title = '';
+  }
+}
+
+function removeRow(id) {
+  const r = document.querySelector(`[data-id="${id}"]`);
+  if (!r) return;
+  r.style.opacity = '0'; r.style.transform = 'translateX(-6px)';
+  setTimeout(() => { r.remove(); updateSum(); }, 140);
+}
+
+function getRows() {
+  return [...document.querySelectorAll('.rrow')].reduce((a, r) => {
+    const ins = r.querySelectorAll('input');
+    const addr = ins[0].value.trim();
+    const amt  = parseInt(ins[1].value, 10);
+    if (addr.startsWith('opt1') && !isNaN(amt) && amt > 0)
+      a.push({ addr, amt });
+    return a;
+  }, []);
+}
+
+function updateSum() {
+  const rows = getRows();
+  if (!rows.length) { document.getElementById('sumPanel').style.display = 'none'; return; }
+  document.getElementById('sumPanel').style.display = 'block';
+  const total = rows.reduce((s, r) => s + r.amt, 0);
+  const fee   = Math.max(Math.floor(total * 10 / 10000), 546);
+  document.getElementById('sumR').textContent = rows.length;
+  document.getElementById('sumA').textContent = total.toLocaleString();
+  document.getElementById('sumF').textContent = fee.toLocaleString();
+}
+
+function parseCSV() {
+  const raw = document.getElementById('csvBox').value.trim();
+  if (!raw) { toast('CSV trống', 'er'); return; }
+  let n = 0;
+  raw.split('\n').forEach(line => {
+    const [a, b] = line.split(',');
+    if (!a || !b) return;
+    const addr = a.trim(); const amt = parseInt(b.trim(), 10);
+    if (addr.startsWith('opt1') && !isNaN(amt) && amt > 0) { addRow(addr, amt); n++; }
+    else toast(`Bỏ qua dòng: ${line.slice(0,30)} (cần địa chỉ opt1)`, 'wn');
+  });
+  document.getElementById('csvBox').value = '';
+  n > 0 ? toast(`✓ Thêm ${n} người nhận`, 'ok') : toast('Không có dòng hợp lệ (cần opt1...)', 'er');
+}
+
+// ══════════════════════════════════════════════════════════════
+//  SEND
+// ══════════════════════════════════════════════════════════════
+function triggerSend() {
+  if (!S.wallet) { toast('Kết nối ví trước', 'er'); return; }
+  const rows = getRows();
+  if (!rows.length) { toast('Thêm ít nhất 1 người nhận (opt1...)', 'er'); return; }
+
+  const total = rows.reduce((s, r) => s + r.amt, 0);
+  const fee   = Math.max(Math.floor(total * 10 / 10000), 546);
+  const sym   = S.asset === 'btc' ? 'SAT' : (S.tokenInfo?.sym || 'TOKEN');
+
+  document.getElementById('cfmBody').innerHTML = `
+    <div style="background:var(--s2);border:1px solid var(--border);border-radius:8px;
+      padding:12px;margin-bottom:12px;font-family:var(--mono);font-size:12px;line-height:2">
+      <div style="display:flex;justify-content:space-between">
+        <span style="color:var(--mut)">Người nhận</span><b>${rows.length} địa chỉ opt1</b>
+      </div>
+      <div style="display:flex;justify-content:space-between">
+        <span style="color:var(--mut)">Tổng gửi</span>
+        <b style="color:var(--ora)">${total.toLocaleString()} ${sym}</b>
+      </div>
+      <div style="display:flex;justify-content:space-between">
+        <span style="color:var(--mut)">Phí (0.1%)</span><b>${fee.toLocaleString()} SAT</b>
+      </div>
+      <div style="border-top:1px solid var(--border);padding-top:8px;margin-top:4px;display:flex;justify-content:space-between">
+        <span style="color:var(--mut)">Tổng cần</span>
+        <b style="color:var(--grn)">${(total+fee).toLocaleString()} SAT</b>
+      </div>
+    </div>
+    <p>Gọi <code style="color:var(--ora)">multiSend${S.asset==='btc'?'BTC':'Token'}()</code> trên OP_NET smart contract</p>
+  `;
+  document.getElementById('cfmOk').onclick = () => {
+    closeOvl('cfmOvl'); execSend(rows, total, fee);
+  };
+  document.getElementById('cfmOvl').classList.add('on');
+}
+
+async function execSend(rows, total, fee) {
+  if (S.sending) return;
+  S.sending = true;
+  const btn = document.getElementById('sendBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin"></span> Đang xử lý...';
+  document.getElementById('txLog').classList.add('on');
+  document.getElementById('ptrack').classList.add('on');
+  document.getElementById('logL').innerHTML = '';
+
+  const log = (m, t='') => {
+    const d = document.getElementById('logL');
+    const e = document.createElement('div'); e.className = 'le';
+    e.innerHTML = `<span class="lt">${new Date().toLocaleTimeString()}</span><span class="lm ${t}">${m}</span>`;
+    d.appendChild(e); d.scrollTop = 9999;
+  };
+  const prog = p => document.getElementById('pfill').style.width = p + '%';
+
+  try {
+    log('🔧 Encode calldata: [u32 count][opt1 addr][u256 sat]...');
+    prog(10); await sleep(300);
+
+    const calldata = encodeCalldata(rows);
+    log(`📦 Calldata: ${calldata.slice(0,20)}... (${calldata.length/2-1} bytes)`);
+    prog(28); await sleep(300);
+
+    // ── Contract address guard ─────────────────────────────────
+    if (!S.contractAddr || !S.contractAddr.startsWith('opt1')) {
+      throw new Error('Chưa có địa chỉ contract. Vào tab Contract → nhập địa chỉ opt1... đã deploy.');
+    }
+
+    const netLabel = S.network === 'livenet' ? 'Mainnet' : S.network === 'testnet' ? 'Testnet' : (S.network || 'OP_NET');
+    log(`🔐 Yêu cầu ký từ OP_WALLET (${netLabel})...`); prog(42);
+
+    let txid;
+    const p = window.opnet;
+    if (!p) {
+      throw new Error('OP_WALLET không tìm thấy. Hãy cài extension và kết nối ví.');
+    }
+    if (!p.sendCalldata) {
+      throw new Error('OP_WALLET version này chưa hỗ trợ sendCalldata(). Hãy cập nhật OP_WALLET lên phiên bản mới nhất.');
+    }
+
+    const res = await p.sendCalldata({
+      to:       S.contractAddr,
+      value:    total + fee,
+      calldata
+    });
+    txid = res?.txid ?? res;
+    if (!txid || typeof txid !== 'string') {
+      throw new Error('OP_WALLET không trả về TXID. Kiểm tra lại ví và thử lại.');
+    }
+
+    prog(80); log(`✅ TX ký OK`, 'ok');
+    log(`📡 Broadcasting lên Bitcoin ${netLabel}...`, 'ok');
+    await sleep(400); prog(100);
+    log(`🔗 TXID: ${txid}`, 'ok');
+    const confirmTime = S.network === 'livenet' ? '10-30 phút' : '< 1 phút';
+    log(`📦 Chờ confirm (thường ${confirmTime})...`, 'wn');
+
+    pushHistory({ txid, type: `MultiSend${S.asset==='btc'?'BTC':'Token'}`,
+      count: rows.length, total, fee, time: new Date(), status:'ok' });
+
+    toast(`✓ MultiSend thành công — ${rows.length} outputs!`, 'ok');
+    log('🎉 Hoàn tất!', 'ok');
+  } catch(e) {
+    log(`❌ ${e.message}`, 'er');
+    toast('❌ ' + e.message, 'er');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '⚡ Thực hiện MultiSend';
+    S.sending = false;
+  }
+}
+
+// Encode calldata: [u32 count][addr 32B][u256 32B]...
+function encodeCalldata(rows) {
+  const buf = new Uint8Array(4 + rows.length * 64);
+  const dv  = new DataView(buf.buffer);
+  dv.setUint32(0, rows.length, false);
+  let off = 4;
+  for (const r of rows) {
+    // address: 32 bytes zero-padded
+    const hex = r.addr.replace(/[^a-f0-9]/gi,'').padStart(64,'0').slice(-64);
+    for (let i=0;i<32;i++) buf[off+i] = parseInt(hex.slice(i*2,i*2+2),16)||0;
+    off += 32;
+    // u256 amount big-endian
+    const ah = r.amt.toString(16).padStart(64,'0');
+    for (let i=0;i<32;i++) buf[off+i] = parseInt(ah.slice(i*2,i*2+2),16)||0;
+    off += 32;
+  }
+  return '0x' + [...buf].map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+// ══════════════════════════════════════════════════════════════
+//  DEPLOY CONTRACT
+// ══════════════════════════════════════════════════════════════
+async function deployContract() {
+  if (!S.wallet) { toast('Kết nối ví trước', 'er'); return; }
+
+  const btn = document.getElementById('deployBtn');
+  btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Deploying...';
+  document.getElementById('deployLogPanel').style.display = 'block';
+
+  const dl = (m, c='var(--txt)') => {
+    const p = document.createElement('p'); p.style.color = c;
+    p.innerHTML = `<span style="color:var(--mut)">[${new Date().toLocaleTimeString()}]</span> ${m}`;
+    document.getElementById('deployLogL').appendChild(p);
+  };
+
+  try {
+    const p = window.opnet;
+    if (!p) throw new Error('OP_WALLET không tìm thấy');
+
+    if (p.deploy) {
+      dl('🔑 Kết nối OP_WALLET để deploy...');
+      dl('📁 Vui lòng chọn file <b style="color:var(--ora)">build/MultiSender.wasm</b> trong OP_WALLET');
+
+      // Mở OP_WALLET deploy flow — user cần chọn WASM file thật
+      const res = await p.deploy({});
+      const deployTxid = res?.txid ?? res;
+      const contractAddr = res?.contractAddress ?? res?.address;
+
+      if (!contractAddr || !contractAddr.startsWith('opt1')) {
+        throw new Error('OP_WALLET không trả về địa chỉ contract hợp lệ (opt1...)');
+      }
+
+      S.contractAddr = contractAddr; S.deployed = true;
+      document.getElementById('deployAddr').textContent = contractAddr;
+      document.getElementById('contractAddrInput').value = contractAddr;
+      document.getElementById('deployStatus').innerHTML = '<span class="badge ok">✓ Deployed on Mainnet</span>';
+
+      dl(`📡 TX: ${deployTxid}`, 'var(--ora)');
+      dl(`✅ Contract address: <b>${contractAddr}</b>`, 'var(--grn)');
+      dl('🎉 MultiSender sẵn sàng trên OP_NET Mainnet!', 'var(--grn)');
+      toast('🚀 Contract deployed: ' + contractAddr.slice(0,20)+'...', 'ok');
+
+    } else {
+      // OP_WALLET không hỗ trợ deploy API — hướng dẫn thủ công
+      dl('⚠ OP_WALLET version này chưa hỗ trợ deploy qua API.', 'var(--ora)');
+      dl('👉 Bước 1: Build WASM: <code>npm run build</code>', 'var(--txt)');
+      dl('👉 Bước 2: Mở OP_WALLET → <b>Deploy Contract</b>', 'var(--txt)');
+      dl('👉 Bước 3: Kéo file <b>build/MultiSender.wasm</b> vào OP_WALLET', 'var(--txt)');
+      dl('👉 Bước 4: Sau khi deploy, copy địa chỉ <b>opt1sq...</b> và dán vào ô bên dưới.', 'var(--txt)');
+      dl('💡 Hoặc cập nhật OP_WALLET lên phiên bản mới nhất để dùng API deploy.', 'var(--blu)');
+      toast('Hãy deploy thủ công qua OP_WALLET extension!', 'wn');
+    }
+
+  } catch(e) {
+    dl(`❌ ${e.message}`, 'var(--red)');
+    toast('Deploy failed: ' + e.message, 'er');
+  } finally {
+    btn.disabled = false; btn.innerHTML = '🚀 Deploy lên OP_NET';
+  }
+}
+
+function setContractAddr() {
+  const v = document.getElementById('contractAddrInput').value.trim();
+  if (!v.startsWith('opt1')) { toast('Địa chỉ phải bắt đầu bằng opt1...', 'er'); return; }
+  S.contractAddr = v; S.deployed = true;
+  document.getElementById('deployAddr').textContent = v;
+  document.getElementById('deployStatus').innerHTML = '<span class="badge ok">✓ Contract đã set</span>';
+  toast('✓ Contract address đã được lưu: ' + v.slice(0,16)+'...', 'ok');
+}
+
+// ══════════════════════════════════════════════════════════════
+//  HISTORY
+// ══════════════════════════════════════════════════════════════
+function pushHistory(tx) {
+  S.history.unshift(tx);
+  const el = document.getElementById('histList');
+  const base = S.network === 'livenet' ? 'https://opscan.org/tx/' : 'https://opscan.org/testnet/tx/';
+  el.innerHTML = S.history.map(t => `
+    <div class="hrow">
+      <div class="hico">⚡</div>
+      <div style="flex:1;min-width:0">
+        <a class="htx" href="${base}${t.txid}" target="_blank">${t.txid}</a>
+        <div class="hm">${t.type} · ${t.count} addrs · ${t.total.toLocaleString()} SAT · ${t.time.toLocaleTimeString()}</div>
+      </div>
+      <span class="badge ok">✓ OK</span>
+    </div>`).join('');
+}
+
+// ══════════════════════════════════════════════════════════════
+//  UTILS
+// ══════════════════════════════════════════════════════════════
+function escHtml(s) { return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function sleep(ms) { return new Promise(r=>setTimeout(r,ms)); }
+
+let _tt;
+function toast(m, t='wn') {
+  const el = document.getElementById('toast');
+  el.textContent = m; el.className = `on ${t}`;
+  clearTimeout(_tt); _tt = setTimeout(()=>el.classList.remove('on'), 4500);
+}
+function closeOvl(id) { document.getElementById(id).classList.remove('on'); }
+</script>
+</body>
+</html>
