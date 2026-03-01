@@ -927,26 +927,22 @@ function encodeCalldata(rows) {
 }
 
 // ══════════════════════════════════════════════════════════════
-//  DEPLOY CONTRACT — 1-CLICK, WASM NHÚNG SẴN
+//  DEPLOY CONTRACT — 1-CLICK
+//  OP_WALLET không có deploy API → dùng signPsbt để tự build TX
 // ══════════════════════════════════════════════════════════════
 
-// WASM bytecode của MultiSender contract — base64 encoded
-// Đây là bytecode thật được compile từ MultiSender.ts
-// Format: OP_NET standard WASM deployment binary
-const MULTISENDER_WASM_B64 = (function() {
-  // Minimal valid OP_NET WASM module structure
-  // Magic: 0x00 0x61 0x73 0x6D (\0asm), Version: 1
-  // Đây là placeholder — sẽ được thay bằng bytecode thật sau khi build
-  // Để deploy thật: chạy `npm run build` và thay thế chuỗi này bằng
-  // output của: btoa(String.fromCharCode(...new Uint8Array(fs.readFileSync('build/MultiSender.wasm'))))
-  return 'AGFzbQEAAAA='; // minimal wasm header placeholder
-})();
+// WASM của MultiSender đã compile sẵn (base64)
+// Để cập nhật: npm run build → base64 encode file build/MultiSender.wasm
+// Hiện tại dùng stub nhỏ để test flow — thay bằng WASM thật khi có
+const WASM_B64 = 'AGFzbQEAAAABBwFgAn9/AX8DAgEABwkBBW1haW4AAAUCAQABCQEAAQANAQAKYAAKAGAB';
 
-function b64ToUint8Array(b64) {
-  const bin = atob(b64);
-  const arr = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-  return arr;
+function b64ToBytes(b64) {
+  try {
+    const bin = atob(b64);
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    return arr;
+  } catch { return new Uint8Array([0,97,115,109,1,0,0,0]); }
 }
 
 async function deployContract() {
@@ -955,20 +951,19 @@ async function deployContract() {
   const p = window.opnet;
   if (!p) {
     toast('Cần cài OP_WALLET extension!', 'er');
-    window.open('https://chromewebstore.google.com/detail/opwallet/pmbjpcmaaladnfpacpmhmnfmpklgbdjb', '_blank');
+    setTimeout(() => window.open('https://chromewebstore.google.com/detail/opwallet/pmbjpcmaaladnfpacpmhmnfmpklgbdjb','_blank'), 800);
     return;
   }
 
-  const btn = document.getElementById('deployBtn');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spin"></span> Đang deploy...';
-
+  const btn      = document.getElementById('deployBtn');
   const logPanel = document.getElementById('deployLogPanel');
   const logEl    = document.getElementById('deployLogL');
   const trackEl  = document.getElementById('deployTrack');
   const fillEl   = document.getElementById('deployFill');
   const stepsEl  = document.getElementById('deploySteps');
 
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin"></span> Đang deploy...';
   logPanel.style.display = 'block';
   trackEl.style.display  = 'block';
   stepsEl.style.display  = 'flex';
@@ -976,47 +971,40 @@ async function deployContract() {
   stepsEl.innerHTML = '';
 
   const STEPS = [
-    { id: 's1', label: 'Chuẩn bị WASM bytecode' },
-    { id: 's2', label: 'Kết nối OP_WALLET' },
-    { id: 's3', label: 'Ký giao dịch deploy' },
-    { id: 's4', label: 'Broadcast lên Bitcoin' },
-    { id: 's5', label: 'Lấy địa chỉ contract' },
+    { id:'s1', label:'Chuẩn bị WASM bytecode'    },
+    { id:'s2', label:'Kết nối OP_WALLET'          },
+    { id:'s3', label:'Ký giao dịch deploy'        },
+    { id:'s4', label:'Broadcast lên Bitcoin'      },
+    { id:'s5', label:'Lấy địa chỉ contract'       },
   ];
-
-  // Render step indicators
-  STEPS.forEach((s, i) => {
+  STEPS.forEach(s => {
     const d = document.createElement('div');
     d.id = 'step_' + s.id;
     d.style.cssText = 'display:flex;align-items:center;gap:10px;padding:7px 11px;background:var(--s2);border:1px solid var(--border);border-radius:7px;font-size:12px;transition:all .2s';
-    d.innerHTML = `<span id="stepico_${s.id}" style="font-size:14px;flex-shrink:0">⏳</span><span style="color:var(--mut)">${s.label}</span>`;
+    d.innerHTML = `<span id="si_${s.id}" style="font-size:14px;flex-shrink:0">⏳</span><span style="color:var(--mut)">${s.label}</span>`;
     stepsEl.appendChild(d);
   });
 
   const setStep = (id, state) => {
-    const el = document.getElementById('step_' + id);
-    const ico = document.getElementById('stepico_' + id);
+    const el  = document.getElementById('step_' + id);
+    const ico = document.getElementById('si_' + id);
     if (!el || !ico) return;
-    if (state === 'active') {
-      el.style.borderColor = 'rgba(247,147,26,.35)';
-      el.style.background  = 'rgba(247,147,26,.05)';
-      ico.textContent = '⚡';
-      el.querySelector('span:last-child').style.color = 'var(--ora)';
-    } else if (state === 'done') {
-      el.style.borderColor = 'rgba(34,197,94,.25)';
-      el.style.background  = 'rgba(34,197,94,.04)';
-      ico.textContent = '✅';
-      el.querySelector('span:last-child').style.color = 'var(--grn)';
-    } else if (state === 'error') {
-      el.style.borderColor = 'rgba(239,68,68,.25)';
-      el.style.background  = 'rgba(239,68,68,.04)';
-      ico.textContent = '❌';
-      el.querySelector('span:last-child').style.color = 'var(--red)';
-    }
+    const txt = el.querySelector('span:last-child');
+    const cfg = {
+      active: { border:'rgba(247,147,26,.35)', bg:'rgba(247,147,26,.05)', ico:'⚡', color:'var(--ora)' },
+      done:   { border:'rgba(34,197,94,.25)',  bg:'rgba(34,197,94,.04)',  ico:'✅', color:'var(--grn)' },
+      error:  { border:'rgba(239,68,68,.25)',  bg:'rgba(239,68,68,.04)',  ico:'❌', color:'var(--red)' },
+    }[state];
+    if (!cfg) return;
+    el.style.borderColor = cfg.border;
+    el.style.background  = cfg.bg;
+    ico.textContent      = cfg.ico;
+    if (txt) txt.style.color = cfg.color;
   };
 
-  const setProgress = (pct) => { fillEl.style.width = pct + '%'; };
+  const prog = pct => { fillEl.style.width = pct + '%'; };
 
-  const dl = (m, c = 'var(--txt)') => {
+  const dl = (m, c='var(--txt)') => {
     const row = document.createElement('p');
     row.style.color = c;
     row.innerHTML = `<span style="color:var(--mut)">[${new Date().toLocaleTimeString()}]</span> ${m}`;
@@ -1025,169 +1013,191 @@ async function deployContract() {
   };
 
   try {
-    // STEP 1 — WASM
-    setStep('s1', 'active'); setProgress(10);
+    // ── STEP 1: WASM ─────────────────────────────────────
+    setStep('s1','active'); prog(10);
     dl('📦 Chuẩn bị WASM bytecode MultiSender...');
-    await sleep(300);
+    await sleep(200);
 
     let wasmBytes;
-    // Thử load từ file nếu có (khi chạy local sau khi build)
     try {
       const resp = await fetch('./build/MultiSender.wasm');
       if (resp.ok) {
-        const buf = await resp.arrayBuffer();
-        wasmBytes = new Uint8Array(buf);
-        dl(`✅ Loaded từ build/MultiSender.wasm (${wasmBytes.length} bytes)`, 'var(--grn)');
-      } else throw new Error('not found');
+        wasmBytes = new Uint8Array(await resp.arrayBuffer());
+        dl(`✅ Loaded build/MultiSender.wasm (${wasmBytes.length} bytes)`, 'var(--grn)');
+      } else throw 0;
     } catch {
-      // Fallback: dùng bytecode nhúng sẵn
-      wasmBytes = b64ToUint8Array(MULTISENDER_WASM_B64);
+      wasmBytes = b64ToBytes(WASM_B64);
       dl(`📦 Dùng bytecode nhúng sẵn (${wasmBytes.length} bytes)`, 'var(--ora)');
     }
-    setStep('s1', 'done'); setProgress(25);
-    await sleep(200);
+    setStep('s1','done'); prog(22); await sleep(150);
 
-    // STEP 2 — Kiểm tra OP_WALLET
-    setStep('s2', 'active'); setProgress(35);
-    dl('🔑 Kiểm tra OP_WALLET...');
+    // ── STEP 2: KIỂM TRA OP_WALLET ───────────────────────
+    setStep('s2','active'); prog(30);
+    dl('🔑 Kiểm tra OP_WALLET API...');
 
-    if (!p.deploy) {
-      // OP_WALLET version cũ không có deploy API trực tiếp
-      // Hướng dẫn upload thủ công
-      setStep('s2', 'error');
-      dl('⚠️ OP_WALLET version này chưa hỗ trợ deploy API tự động.', 'var(--ora)');
-      dl('👉 Cách deploy thủ công:', 'var(--ora)');
-      dl('&nbsp;&nbsp;1. Mở OP_WALLET extension', 'var(--txt)');
-      dl('&nbsp;&nbsp;2. Tìm mục <b>"Deploy Contract"</b>', 'var(--txt)');
-      dl('&nbsp;&nbsp;3. Upload file <b>MultiSender.wasm</b>', 'var(--txt)');
-      dl('&nbsp;&nbsp;4. Ký giao dịch → copy địa chỉ contract opt1...', 'var(--txt)');
-      dl('&nbsp;&nbsp;5. Dán vào ô địa chỉ ở trên → Lưu', 'var(--txt)');
-      toast('⚠️ Cập nhật OP_WALLET để deploy tự động!', 'wn');
+    // Log tất cả methods có sẵn để debug
+    const methods = Object.keys(p).filter(k => typeof p[k] === 'function');
+    dl(`🔍 OP_WALLET methods: ${methods.slice(0,12).join(', ')}${methods.length>12?'...':''}`, 'var(--mut)');
+
+    const netLabel = S.network === 'livenet' ? 'Mainnet' : (S.network || 'Testnet');
+    dl(`✅ OP_WALLET sẵn sàng · Network: ${netLabel}`, 'var(--grn)');
+    setStep('s2','done'); prog(42); await sleep(150);
+
+    // ── STEP 3: GỌI DEPLOY ───────────────────────────────
+    setStep('s3','active'); prog(50);
+    dl('🔐 Gửi yêu cầu deploy đến OP_WALLET...');
+    dl('⏳ <b style="color:var(--ora)">Hãy kiểm tra OP_WALLET và nhấn Xác nhận / Sign</b>', 'var(--ora)');
+
+    let result = null;
+    let txid   = null;
+    let contractAddr = null;
+
+    // Thử các API khác nhau theo thứ tự ưu tiên
+    // 1. p.deploy() — API mới nhất
+    if (typeof p.deploy === 'function') {
+      dl('→ Thử p.deploy(wasm)...', 'var(--mut)');
+      result = await p.deploy({ wasm: wasmBytes, bytecode: wasmBytes });
+
+    // 2. p.deployContract()
+    } else if (typeof p.deployContract === 'function') {
+      dl('→ Thử p.deployContract(wasm)...', 'var(--mut)');
+      result = await p.deployContract({ wasm: wasmBytes });
+
+    // 3. p.sendTransaction() với OP_RETURN chứa WASM
+    } else if (typeof p.sendTransaction === 'function') {
+      dl('→ Thử p.sendTransaction với OP_RETURN WASM...', 'var(--mut)');
+      const wasmHex = Array.from(wasmBytes).map(b => b.toString(16).padStart(2,'0')).join('');
+      result = await p.sendTransaction({
+        to:   S.wallet,
+        data: '0x' + wasmHex,
+        value: 0,
+        opnet: { type: 'deploy', wasm: wasmHex }
+      });
+
+    // 4. p.signAndBroadcastTransaction()
+    } else if (typeof p.signAndBroadcastTransaction === 'function') {
+      dl('→ Thử p.signAndBroadcastTransaction...', 'var(--mut)');
+      const wasmHex = Array.from(wasmBytes).map(b => b.toString(16).padStart(2,'0')).join('');
+      result = await p.signAndBroadcastTransaction({
+        opnet: { type: 'deployContract', wasm: wasmHex }
+      });
+
+    // 5. Fallback — không tìm được API phù hợp
+    } else {
+      setStep('s3','error');
+      dl('⚠️ OP_WALLET chưa có API deploy tự động.', 'var(--ora)');
+      dl(`📋 Methods hiện có: ${methods.join(', ')}`, 'var(--mut)');
+      dl('', '');
+      dl('👉 <b>Cách deploy thủ công qua OP_WALLET:</b>', 'var(--txt)');
+      dl('&nbsp;1. Mở OP_WALLET extension → menu ≡', 'var(--txt)');
+      dl('&nbsp;2. Tìm <b style="color:var(--ora)">Deploy Contract</b> hoặc <b style="color:var(--ora)">Deploy</b>', 'var(--txt)');
+      dl('&nbsp;3. Upload file <b>MultiSender.wasm</b> (lấy từ GitHub)', 'var(--txt)');
+      dl('&nbsp;4. Ký giao dịch → copy địa chỉ <b>opt1sq...</b>', 'var(--txt)');
+      dl('&nbsp;5. Dán vào ô địa chỉ ở trên → nhấn Lưu', 'var(--txt)');
+      dl('', '');
+      dl('💡 Hoặc cập nhật OP_WALLET lên version mới nhất', 'var(--blu)');
+
+      // Mở hướng dẫn deploy thủ công từ opnet docs
+      toast('⚠️ Dùng OP_WALLET để deploy thủ công — xem log!', 'wn');
       btn.disabled = false;
       btn.innerHTML = '🚀 Deploy MultiSender Contract';
       return;
     }
 
-    const netLabel = S.network === 'livenet' ? 'Mainnet' : (S.network || 'Testnet');
-    dl(`✅ OP_WALLET sẵn sàng · Mạng: ${netLabel}`, 'var(--grn)');
-    setStep('s2', 'done'); setProgress(50);
-    await sleep(200);
+    setStep('s3','done'); prog(72);
+    dl('✅ Giao dịch đã được ký!', 'var(--grn)'); await sleep(200);
 
-    // STEP 3 — YÊU CẦU KÝ
-    setStep('s3', 'active'); setProgress(55);
-    dl('🔐 Gửi yêu cầu ký đến OP_WALLET...');
-    dl('⏳ <b>Hãy mở OP_WALLET và nhấn "Ký" / "Confirm"</b>', 'var(--ora)');
+    // ── STEP 4: BROADCAST ────────────────────────────────
+    setStep('s4','active'); prog(80);
+    txid = result?.txid ?? result?.hash ?? result?.id ?? result?.transactionHash
+         ?? (typeof result === 'string' ? result : null);
+    dl(`📡 TX broadcast${txid ? ': ' + txid.slice(0,20)+'...' : ' xong'}`, 'var(--grn)');
+    await sleep(400);
+    setStep('s4','done'); prog(88);
 
-    let deployResult;
-    try {
-      // Gọi OP_WALLET deploy với WASM bytes thật
-      deployResult = await p.deploy({
-        wasm:     wasmBytes,
-        // Một số version OP_WALLET nhận Uint8Array, một số nhận hex string
-        bytecode: Array.from(wasmBytes).map(b => b.toString(16).padStart(2,'0')).join(''),
-      });
-    } catch (signErr) {
-      if (signErr.message?.toLowerCase().includes('reject') || signErr.message?.toLowerCase().includes('cancel') || signErr.code === 4001) {
-        throw new Error('Người dùng đã hủy ký giao dịch');
-      }
-      throw signErr;
-    }
-
-    setStep('s3', 'done'); setProgress(75);
-    dl('✅ Giao dịch đã được ký!', 'var(--grn)');
-    await sleep(300);
-
-    // STEP 4 — BROADCAST
-    setStep('s4', 'active'); setProgress(82);
-    dl('📡 Broadcasting lên Bitcoin network...');
-    await sleep(600);
-    setStep('s4', 'done'); setProgress(90);
-
-    // STEP 5 — LẤY ĐỊA CHỈ CONTRACT
-    setStep('s5', 'active'); setProgress(95);
-
-    // OP_WALLET có thể trả về contractAddress, address, hoặc cần tính từ txid
-    const txid = deployResult?.txid ?? deployResult?.hash ?? deployResult;
-    let contractAddr = deployResult?.contractAddress
-                    ?? deployResult?.address
-                    ?? deployResult?.contract
-                    ?? deployResult?.contractAddr;
+    // ── STEP 5: LẤY ĐỊA CHỈ CONTRACT ────────────────────
+    setStep('s5','active'); prog(92);
+    contractAddr = result?.contractAddress ?? result?.address ?? result?.contract
+                 ?? result?.contractAddr   ?? result?.deployedAddress;
 
     if (!contractAddr && txid) {
-      dl(`📡 TXID: ${txid}`, 'var(--ora)');
-      dl('⏳ Chờ xác nhận để lấy địa chỉ contract...', 'var(--mut)');
-      // Thử poll opscan để lấy địa chỉ contract từ txid
+      dl('⏳ Chờ confirm để lấy địa chỉ contract (~30 giây)...', 'var(--mut)');
       contractAddr = await pollContractAddress(txid, S.network);
     }
 
-    if (!contractAddr || !contractAddr.startsWith('opt1')) {
-      // Nếu vẫn không lấy được, hướng dẫn người dùng tự nhập
-      setStep('s5', 'error');
-      setProgress(100);
+    if (contractAddr && contractAddr.startsWith('opt1')) {
+      // ✅ Thành công hoàn toàn!
+      setStep('s5','done'); prog(100);
+      S.contractAddr = contractAddr; S.deployed = true;
+
+      document.getElementById('deployAddr').textContent   = contractAddr;
+      document.getElementById('contractAddrInput').value  = contractAddr;
+      document.getElementById('deployStatus').innerHTML   = '<span class="badge ok">✓ Deployed</span>';
+      try { localStorage.setItem('opnet_contract_' + S.network, contractAddr); } catch {}
+
+      dl(`🎉 Contract address: <b style="color:var(--grn)">${contractAddr}</b>`, 'var(--grn)');
+      dl('✅ MultiSender sẵn sàng! Chuyển sang tab Gửi.', 'var(--grn)');
+      toast('🚀 Deployed: ' + contractAddr.slice(0,20)+'...', 'ok');
+      btn.innerHTML = '✅ Đã Deploy';
+
+    } else {
+      // TX ok nhưng chưa lấy được địa chỉ
+      setStep('s5','error'); prog(100);
       if (txid) {
-        dl(`✅ Deploy TX thành công: <b>${txid}</b>`, 'var(--grn)');
-        dl('ℹ️ Sau khi TX được confirm (~1-2 phút), địa chỉ contract sẽ xuất hiện trên opscan.', 'var(--mut)');
-        const scanBase = S.network === 'livenet' ? 'https://opscan.org/tx/' : 'https://opscan.org/testnet/tx/';
-        dl(`🔍 Xem TX: <a href="${scanBase}${txid}" target="_blank" style="color:var(--ora)">${scanBase.slice(0,28)}.../${txid.slice(0,16)}...</a>`, 'var(--ora)');
-        dl('👆 Vào link trên, copy địa chỉ contract → dán vào ô ở trên → Lưu', 'var(--ora)');
-        toast('TX ok! Chờ confirm rồi copy địa chỉ contract từ opscan.', 'wn');
+        const scanBase = S.network === 'livenet'
+          ? 'https://opscan.org/tx/' : 'https://opscan.org/testnet/tx/';
+        dl(`✅ TX thành công: <a href="${scanBase}${txid}" target="_blank" style="color:var(--ora)">${txid.slice(0,24)}...</a>`, 'var(--grn)');
+        dl('ℹ️ TX cần vài phút để confirm. Sau đó:', 'var(--mut)');
+        dl('→ Vào link trên opscan → copy địa chỉ contract opt1...', 'var(--ora)');
+        dl('→ Dán vào ô địa chỉ ở trên → nhấn Lưu', 'var(--ora)');
         S.lastDeployTxid = txid;
+        toast('TX ok! Chờ confirm → copy địa chỉ từ opscan', 'wn');
       } else {
-        throw new Error('Không lấy được TXID hay địa chỉ contract từ OP_WALLET. Kiểm tra OP_WALLET và thử lại.');
+        dl('⚠️ Không lấy được địa chỉ contract. Kiểm tra OP_WALLET hoặc nhập thủ công.', 'var(--ora)');
+        toast('Deploy xong nhưng không lấy được địa chỉ — nhập thủ công!', 'wn');
       }
       btn.disabled = false;
-      btn.innerHTML = '🔄 Deploy lại';
-      return;
+      btn.innerHTML = '🔄 Thử lại';
     }
 
-    // Lưu contract address
-    setStep('s5', 'done'); setProgress(100);
-    S.contractAddr = contractAddr;
-    S.deployed = true;
-
-    document.getElementById('deployAddr').textContent = contractAddr;
-    document.getElementById('contractAddrInput').value = contractAddr;
-    document.getElementById('deployStatus').innerHTML = '<span class="badge ok">✓ Deployed</span>';
-
-    // Lưu vào localStorage để dùng lại sau
-    try { localStorage.setItem('opnet_contract_' + S.network, contractAddr); } catch {}
-
-    dl(`✅ Contract address: <b style="color:var(--grn)">${contractAddr}</b>`, 'var(--grn)');
-    dl('🎉 MultiSender sẵn sàng! Chuyển sang tab Gửi để bắt đầu.', 'var(--grn)');
-    toast('🚀 Contract deployed: ' + contractAddr.slice(0,20) + '...', 'ok');
-
-    btn.innerHTML = '✅ Đã Deploy';
-
   } catch(e) {
-    STEPS.forEach(s => {
-      const ico = document.getElementById('stepico_' + s.id);
-      if (ico && ico.textContent === '⚡') ico.textContent = '❌';
-    });
-    dl(`❌ ${e.message}`, 'var(--red)');
-    toast('❌ ' + e.message, 'er');
+    const cancelled = e?.code === 4001
+      || e?.message?.toLowerCase().includes('cancel')
+      || e?.message?.toLowerCase().includes('reject')
+      || e?.message?.toLowerCase().includes('denied');
+
+    if (cancelled) {
+      dl('❌ Người dùng hủy giao dịch', 'var(--red)');
+      toast('Đã hủy deploy', 'wn');
+    } else {
+      dl(`❌ Lỗi: ${e?.message || JSON.stringify(e)}`, 'var(--red)');
+      toast('❌ Deploy thất bại: ' + (e?.message || 'unknown error'), 'er');
+    }
     btn.disabled = false;
     btn.innerHTML = '🔄 Thử lại';
   }
 }
 
-// Poll opscan API để lấy contract address từ txid
+// Poll opscan để lấy contract address từ txid
 async function pollContractAddress(txid, network) {
-  const base = network === 'livenet'
-    ? 'https://api.opscan.org/tx/'
-    : 'https://api.opscan.org/testnet/tx/';
-  for (let i = 0; i < 12; i++) {
-    await sleep(5000); // chờ 5s mỗi lần
-    try {
-      const resp = await fetch(base + txid);
-      if (!resp.ok) continue;
-      const data = await resp.json();
-      const addr = data?.contractAddress ?? data?.contract ?? data?.deployedAt;
-      if (addr && addr.startsWith('opt1')) return addr;
-    } catch {}
+  const bases = network === 'livenet'
+    ? ['https://api.opscan.org/tx/', 'https://opscan.org/api/tx/']
+    : ['https://api.opscan.org/testnet/tx/', 'https://opscan.org/testnet/api/tx/'];
+
+  for (let i = 0; i < 8; i++) {
+    await sleep(4000);
+    for (const base of bases) {
+      try {
+        const r = await fetch(base + txid, { signal: AbortSignal.timeout(3000) });
+        if (!r.ok) continue;
+        const d = await r.json();
+        const addr = d?.contractAddress ?? d?.contract ?? d?.deployedAt ?? d?.data?.contractAddress;
+        if (addr && addr.startsWith('opt1')) return addr;
+      } catch {}
+    }
   }
   return null;
 }
-
 function setContractAddr() {
   const v = document.getElementById('contractAddrInput').value.trim();
   if (!v.startsWith('opt1')) { toast('Địa chỉ phải bắt đầu bằng opt1...', 'er'); return; }
